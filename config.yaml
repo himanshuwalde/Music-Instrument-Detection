@@ -1,0 +1,99 @@
+# Instrument Detection Project Configuration
+
+# Data Configuration
+data:
+  raw_audio_dir: "data/raw_audio"
+  processed_dir: "data/processed"
+  features_file: "data/processed/features.csv"
+  labels_file: "data/processed/labels.csv"
+  sample_rate: 22050
+  duration: 3.0  # seconds per clip
+  n_mfcc: 50
+  n_fft: 2048
+  hop_length: 512
+
+# Dataset Split
+split:
+  train_ratio: 0.8
+  test_ratio: 0.2
+  random_state: 42
+  stratify: true
+
+# Instrument Classes
+classes:
+  names:
+    - "guitar"
+    - "piano"
+    - "violin"
+    - "flute"
+    - "drum"
+  n_classes: 5
+  samples_per_class: 50
+
+# Model Configuration
+model:
+  algorithms:
+    - "random_forest"
+    - "svm"
+    - "logistic_regression"
+    - "knn"
+    - "gradient_boosting"
+  default: "random_forest"
+  hyperparameter_tuning: true
+  cv_folds: 5
+
+# Random Forest Params
+random_forest:
+  n_estimators: 200
+  max_depth: 20
+  min_samples_split: 5
+  min_samples_leaf: 2
+  random_state: 42
+  n_jobs: -1
+
+# SVM Params
+svm:
+  C: 10.0
+  kernel: "rbf"
+  gamma: "scale"
+  probability: true
+  random_state: 42
+
+# Logistic Regression Params
+logistic_regression:
+  C: 1.0
+  max_iter: 1000
+  solver: "lbfgs"
+  random_state: 42
+
+# KNN Params
+knn:
+  n_neighbors: 5
+  weights: "distance"
+  metric: "minkowski"
+
+# Gradient Boosting Params
+gradient_boosting:
+  n_estimators: 100
+  learning_rate: 0.1
+  max_depth: 5
+  random_state: 42
+
+# Evaluation
+evaluation:
+  metrics:
+    - "accuracy"
+    - "f1_macro"
+    - "f1_weighted"
+    - "precision_macro"
+    - "recall_macro"
+  target_accuracy: 0.90
+  target_f1: 0.79
+
+# Output
+output:
+  model_dir: "models"
+  results_dir: "results"
+  plots_dir: "results/plots"
+  save_model: true
+  save_predictions: true

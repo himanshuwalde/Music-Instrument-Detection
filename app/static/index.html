@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Instrument Detection</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎵</text></svg>">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: linear-gradient(135deg, #1e1e2f 0%, #2d2d44 100%);
+    color: #eee;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px;
+  }
+  .container { width: 100%; max-width: 560px; }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  .subtitle { color: #9aa0b4; font-size: 0.9rem; margin-bottom: 24px; }
+  #status {
+    display: inline-block; font-size: 0.8rem; padding: 4px 12px;
+    border-radius: 999px; margin-bottom: 20px;
+    background: #3a3a52; color: #ccc;
+  }
+  #status.ok { background: #14532d; color: #86efac; }
+  #status.err { background: #5b1c1c; color: #fca5a5; }
+  #dropzone {
+    border: 2px dashed #565b76; border-radius: 12px;
+    padding: 40px 20px; text-align: center; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  #dropzone:hover, #dropzone.drag { border-color: #8b7cf6; background: rgba(139,124,246,.08); }
+  #dropzone p { color: #9aa0b4; margin-top: 8px; font-size: 0.85rem; }
+  #dropzone .icon { font-size: 2rem; }
+  audio { width: 100%; margin-top: 16px; display: none; }
+  button#classify {
+    width: 100%; margin-top: 16px; padding: 14px;
+    font-size: 1rem; font-weight: 600; color: #fff;
+    background: #6c5ce7; border: none; border-radius: 10px; cursor: pointer;
+  }
+  button#classify:disabled { background: #4a4a63; cursor: not-allowed; }
+  #error {
+    display: none; margin-top: 16px; padding: 12px 16px;
+    background: #5b1c1c; color: #fca5a5; border-radius: 10px; font-size: 0.9rem;
+  }
+  #result { display: none; margin-top: 24px; }
+  .card {
+    background: rgba(255,255,255,.05); border-radius: 14px; padding: 24px;
+    text-align: center;
+  }
+  #instrument-emoji { font-size: 3.4rem; }
+  #instrument-name { font-size: 1.5rem; font-weight: 700; margin-top: 6px; text-transform: capitalize; }
+  #confidence { color: #9aa0b4; margin-top: 4px; font-size: 0.95rem; }
+  .bars { margin-top: 20px; text-align: left; }
+  .bar-row { margin-bottom: 12px; }
+  .bar-label { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 4px; }
+  .bar-label .name { text-transform: capitalize; }
+  .track { height: 8px; background: rgba(255,255,255,.1); border-radius: 999px; overflow: hidden; }
+  .fill { height: 100%; background: linear-gradient(90deg, #6c5ce7, #a29bfe); width: 0; transition: width .4s ease; }
+  #model-note { color: #6b7086; font-size: 0.75rem; margin-top: 16px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🎵 Instrument Detection</h1>
+  <p class="subtitle">Upload an audio clip and the model will identify the instrument.</p>
+  <span id="status">Checking model…</span>
+
+  <div id="dropzone">
+    <div class="icon">📂</div>
+    <strong>Click to choose or drop an audio file</strong>
+    <p>WAV, MP3, FLAC or OGG — first 3 seconds are used</p>
+  </div>
+  <input type="file" id="file-input" accept=".wav,.mp3,.flac,.ogg" hidden>
+  <audio id="player" controls></audio>
+  <button id="classify" disabled>Classify</button>
+  <div id="error"></div>
+
+  <div id="result">
+    <div class="card">
+      <div id="instrument-emoji">🎵</div>
+      <div id="instrument-name"></div>
+      <div id="confidence"></div>
+    </div>
+    <div class="bars" id="bars"></div>
+  </div>
+  <p id="model-note"></p>
+</div>
+
+<script>
+const EMOJIS = { guitar: '🎸', piano: '🎹', violin: '🎻', flute: '🪈', drum: '🥁' };
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+const player = document.getElementById('player');
+const classifyBtn = document.getElementById('classify');
+const statusChip = document.getElementById('status');
+let selectedFile = null;
+
+fetch('/health').then(r => r.json()).then(h => {
+  if (h.model_loaded) {
+    statusChip.textContent = `Model ready: ${h.model_name}`;
+    statusChip.className = 'ok';
+    document.getElementById('model-note').textContent =
+      `Trained on: ${h.classes.join(', ')}`;
+  } else {
+    statusChip.textContent = 'No trained model — run training first';
+    statusChip.className = 'err';
+  }
+}).catch(() => {
+  statusChip.textContent = 'Backend unreachable';
+  statusChip.className = 'err';
+});
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault(); dropzone.classList.remove('drag');
+  if (e.dataTransfer.files.length) selectFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) selectFile(fileInput.files[0]);
+});
+
+function selectFile(file) {
+  selectedFile = file;
+  player.src = URL.createObjectURL(file);
+  player.style.display = 'block';
+  classifyBtn.disabled = false;
+  hideError();
+  document.getElementById('result').style.display = 'none';
+}
+
+classifyBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+  classifyBtn.disabled = true;
+  classifyBtn.textContent = 'Classifying…';
+  hideError();
+  try {
+    const form = new FormData();
+    form.append('file', selectedFile);
+    const res = await fetch('/predict', { method: 'POST', body: form });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || 'Prediction failed');
+    showResult(body);
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    classifyBtn.disabled = false;
+    classifyBtn.textContent = 'Classify';
+  }
+});
+
+function showResult(data) {
+  document.getElementById('instrument-emoji').textContent =
+    EMOJIS[data.instrument] || '🎵';
+  document.getElementById('instrument-name').textContent = data.instrument;
+  document.getElementById('confidence').textContent =
+    `Confidence: ${(data.confidence * 100).toFixed(1)}%`;
+  const bars = document.getElementById('bars');
+  bars.innerHTML = '';
+  data.top_predictions.forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = `
+      <div class="bar-label">
+        <span class="name">${p.instrument}</span>
+        <span>${(p.probability * 100).toFixed(1)}%</span>
+      </div>
+      <div class="track"><div class="fill" style="width:${p.probability * 100}%"></div></div>`;
+    bars.appendChild(row);
+  });
+  document.getElementById('result').style.display = 'block';
+  document.getElementById('result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function showError(msg) {
+  const el = document.getElementById('error');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function hideError() {
+  document.getElementById('error').style.display = 'none';
+}
+</script>
+</body>
+</html>
